@@ -1,11 +1,13 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
-	"os/exec"
-	"strings"
+	"os"
 
+	"github.com/nikzadk/axe/pkg/branch"
+	"github.com/nikzadk/axe/pkg/git"
+	"github.com/nikzadk/axe/pkg/github"
+	"github.com/nikzadk/axe/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -24,12 +26,6 @@ func init() {
 	listCmd.Flags().BoolP("verbose", "v", false, "Show verbose output including PR numbers")
 }
 
-type prInfo struct {
-	Number int    `json:"number"`
-	State  string `json:"state"`
-	Title  string `json:"title"`
-}
-
 func runList(cmd *cobra.Command, args []string) error {
 	verbose, _ := cmd.Flags().GetBool("verbose")
 	repoPath, _ := cmd.Flags().GetString("repo")
@@ -38,81 +34,33 @@ func runList(cmd *cobra.Command, args []string) error {
 		repoPath = "."
 	}
 
-	// Get all local branches
-	branches, err := getLocalBranches(repoPath)
+	// Create dependencies
+	gitClient := git.NewDefaultClient()
+	githubClient := github.NewDefaultClient()
+	branchService := branch.NewService(gitClient, githubClient)
+	formatter := output.NewColoredFormatter(os.Stdout)
+
+	// Get merged branches
+	mergedBranches, err := branchService.GetMergedBranches(repoPath)
 	if err != nil {
-		return fmt.Errorf("failed to get local branches: %w", err)
-	}
-
-	// Filter out main/master branches
-	var filteredBranches []string
-	for _, branch := range branches {
-		if branch != "main" && branch != "master" {
-			filteredBranches = append(filteredBranches, branch)
-		}
-	}
-
-	// Check each branch for merged PRs
-	mergedBranches := make(map[string]prInfo)
-	for _, branch := range filteredBranches {
-		pr, err := getMergedPR(repoPath, branch)
-		if err == nil && pr != nil {
-			mergedBranches[branch] = *pr
-		}
+		formatter.PrintError(fmt.Sprintf("Failed to get local branches: %v", err))
+		return err
 	}
 
 	// Display results
 	if len(mergedBranches) == 0 {
-		fmt.Println("No squash-merged branches found.")
+		formatter.PrintInfo("No squash-merged branches found.")
 		return nil
 	}
 
-	fmt.Printf("Found %d squash-merged branch(es):\n\n", len(mergedBranches))
-	for branch, pr := range mergedBranches {
+	formatter.PrintHeader(fmt.Sprintf("Found %d squash-merged branch(es):", len(mergedBranches)))
+	for _, mb := range mergedBranches {
 		if verbose {
-			fmt.Printf("  %s (PR #%d: %s)\n", branch, pr.Number, pr.Title)
+			formatter.PrintBranchWithPR(mb.Name, mb.PR)
 		} else {
-			fmt.Printf("  %s\n", branch)
+			formatter.PrintBranch(mb.Name)
 		}
 	}
 
 	return nil
-}
-
-func getLocalBranches(repoPath string) ([]string, error) {
-	cmd := exec.Command("git", "-C", repoPath, "branch", "--format=%(refname:short)")
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-
-	branches := strings.Split(strings.TrimSpace(string(output)), "\n")
-	return branches, nil
-}
-
-func getMergedPR(repoPath, branch string) (*prInfo, error) {
-	// Use gh to check for merged PRs for this branch
-	cmd := exec.Command("gh", "pr", "list",
-		"--repo", "$(git -C "+repoPath+" remote get-url origin | sed 's/.*github.com[:/]\\(.*\\)\\.git/\\1/')",
-		"--state", "merged",
-		"--head", branch,
-		"--json", "number,state,title",
-		"--limit", "1")
-	cmd.Dir = repoPath
-
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-
-	var prs []prInfo
-	if err := json.Unmarshal(output, &prs); err != nil {
-		return nil, err
-	}
-
-	if len(prs) == 0 {
-		return nil, fmt.Errorf("no merged PR found")
-	}
-
-	return &prs[0], nil
 }

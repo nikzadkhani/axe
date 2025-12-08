@@ -3,8 +3,11 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 
+	"github.com/nikzadk/axe/pkg/branch"
+	"github.com/nikzadk/axe/pkg/git"
+	"github.com/nikzadk/axe/pkg/github"
+	"github.com/nikzadk/axe/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -35,43 +38,33 @@ func runClean(cmd *cobra.Command, args []string) error {
 		repoPath = "."
 	}
 
-	// Get all local branches
-	branches, err := getLocalBranches(repoPath)
+	// Create dependencies
+	gitClient := git.NewDefaultClient()
+	githubClient := github.NewDefaultClient()
+	branchService := branch.NewService(gitClient, githubClient)
+	formatter := output.NewColoredFormatter(os.Stdout)
+
+	// Get merged branches
+	mergedBranches, err := branchService.GetMergedBranches(repoPath)
 	if err != nil {
-		return fmt.Errorf("failed to get local branches: %w", err)
+		formatter.PrintError(fmt.Sprintf("Failed to get local branches: %v", err))
+		return err
 	}
 
-	// Filter out main/master branches
-	var filteredBranches []string
-	for _, branch := range branches {
-		if branch != "main" && branch != "master" {
-			filteredBranches = append(filteredBranches, branch)
-		}
-	}
-
-	// Check each branch for merged PRs
-	var toDelete []string
-	for _, branch := range filteredBranches {
-		pr, err := getMergedPR(repoPath, branch)
-		if err == nil && pr != nil {
-			toDelete = append(toDelete, branch)
-		}
-	}
-
-	if len(toDelete) == 0 {
-		fmt.Println("No squash-merged branches found to delete.")
+	if len(mergedBranches) == 0 {
+		formatter.PrintInfo("No squash-merged branches found to delete.")
 		return nil
 	}
 
 	// Display what will be deleted
-	fmt.Printf("Found %d squash-merged branch(es) to delete:\n\n", len(toDelete))
-	for _, branch := range toDelete {
-		fmt.Printf("  %s\n", branch)
+	formatter.PrintHeader(fmt.Sprintf("Found %d squash-merged branch(es) to delete:", len(mergedBranches)))
+	for _, mb := range mergedBranches {
+		formatter.PrintBranch(mb.Name)
 	}
 	fmt.Println()
 
 	if dryRun {
-		fmt.Println("(Dry run - no branches were deleted)")
+		formatter.PrintWarning("Dry run - no branches were deleted")
 		return nil
 	}
 
@@ -81,30 +74,35 @@ func runClean(cmd *cobra.Command, args []string) error {
 		var response string
 		fmt.Scanln(&response)
 		if response != "y" && response != "Y" {
-			fmt.Println("Cancelled.")
+			formatter.PrintInfo("Cancelled.")
 			return nil
 		}
 	}
 
-	// Delete branches
-	deleted := 0
-	failed := 0
-	for _, branch := range toDelete {
-		cmd := exec.Command("git", "-C", repoPath, "branch", "-D", branch)
-		if err := cmd.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to delete %s: %v\n", branch, err)
-			failed++
-		} else {
-			fmt.Printf("Deleted: %s\n", branch)
-			deleted++
-		}
+	// Extract branch names
+	var branchNames []string
+	for _, mb := range mergedBranches {
+		branchNames = append(branchNames, mb.Name)
 	}
 
-	fmt.Printf("\nDeleted %d branch(es)", deleted)
-	if failed > 0 {
-		fmt.Printf(" (%d failed)", failed)
-	}
+	// Delete branches
+	deleted, failed := branchService.DeleteBranches(repoPath, branchNames)
+
+	// Display results
 	fmt.Println()
+	for _, branch := range deleted {
+		formatter.PrintSuccess(fmt.Sprintf("Deleted: %s", branch))
+	}
+	for _, branch := range failed {
+		formatter.PrintError(fmt.Sprintf("Failed to delete: %s", branch))
+	}
+
+	fmt.Println()
+	if len(failed) > 0 {
+		formatter.PrintWarning(fmt.Sprintf("Deleted %d branch(es), %d failed", len(deleted), len(failed)))
+	} else {
+		formatter.PrintSuccess(fmt.Sprintf("Deleted %d branch(es)", len(deleted)))
+	}
 
 	return nil
 }
