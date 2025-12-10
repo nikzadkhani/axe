@@ -26,4 +26,5 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().StringP("repo", "r", "", "Repository path (defaults to current directory)")
+	rootCmd.PersistentFlags().Bool("no-color", false, "Disable colored output")
 }

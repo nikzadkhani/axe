@@ -5,7 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nikzadk/axe/pkg/github"
+	"github.com/nikzadkhani/axe/pkg/branch"
+	"github.com/nikzadkhani/axe/pkg/github"
 )
 
 func TestColoredFormatter_PrintSuccess(t *testing.T) {
@@ -135,5 +136,99 @@ func TestPlainFormatter_PrintBranchWithPR(t *testing.T) {
 	}
 	if !strings.Contains(output, "Add new feature") {
 		t.Errorf("PrintBranchWithPR() output = %q, want it to contain 'Add new feature'", output)
+	}
+}
+
+func TestColoredFormatter_PrintBranchStatuses(t *testing.T) {
+	buf := &bytes.Buffer{}
+	formatter := NewColoredFormatter(buf)
+
+	statusMap := map[string][]branch.BranchStatus{
+		"merged": {
+			{Name: "merged-branch", Status: "merged", PR: &github.PRInfo{Number: 1, Title: "Merged PR"}},
+		},
+		"open": {
+			{Name: "open-branch", Status: "open", PR: &github.PRInfo{Number: 2, Title: "Open PR"}},
+		},
+		"draft": {
+			{Name: "draft-branch", Status: "draft", PR: &github.PRInfo{Number: 3, Title: "Draft PR"}},
+		},
+		"closed": {
+			{Name: "closed-branch", Status: "closed", PR: &github.PRInfo{Number: 4, Title: "Closed PR"}},
+		},
+		"no-pr": {
+			{Name: "no-pr-branch", Status: "no-pr", PR: nil},
+		},
+	}
+
+	formatter.PrintBranchStatuses(statusMap)
+
+	output := buf.String()
+
+	// Check for all sections
+	if !strings.Contains(output, "Merged (ready to axe)") {
+		t.Errorf("PrintBranchStatuses() output should contain 'Merged (ready to axe)'")
+	}
+	if !strings.Contains(output, "Open PR") {
+		t.Errorf("PrintBranchStatuses() output should contain 'Open PR'")
+	}
+	if !strings.Contains(output, "Draft PR") {
+		t.Errorf("PrintBranchStatuses() output should contain 'Draft PR'")
+	}
+	if !strings.Contains(output, "Closed (not merged)") {
+		t.Errorf("PrintBranchStatuses() output should contain 'Closed (not merged)'")
+	}
+	if !strings.Contains(output, "No PR") {
+		t.Errorf("PrintBranchStatuses() output should contain 'No PR'")
+	}
+
+	// Check for branch names
+	branches := []string{"merged-branch", "open-branch", "draft-branch", "closed-branch", "no-pr-branch"}
+	for _, branchName := range branches {
+		if !strings.Contains(output, branchName) {
+			t.Errorf("PrintBranchStatuses() output should contain branch '%s'", branchName)
+		}
+	}
+}
+
+func TestPlainFormatter_PrintBranchStatuses(t *testing.T) {
+	buf := &bytes.Buffer{}
+	formatter := NewPlainFormatter(buf)
+
+	statusMap := map[string][]branch.BranchStatus{
+		"merged": {
+			{Name: "merged-branch", Status: "merged", PR: &github.PRInfo{Number: 1, Title: "Merged PR"}},
+		},
+		"no-pr": {
+			{Name: "no-pr-branch", Status: "no-pr", PR: nil},
+		},
+	}
+
+	formatter.PrintBranchStatuses(statusMap)
+
+	output := buf.String()
+
+	// Check for sections
+	if !strings.Contains(output, "Merged (ready to axe)") {
+		t.Errorf("PrintBranchStatuses() output should contain 'Merged (ready to axe)'")
+	}
+	if !strings.Contains(output, "No PR") {
+		t.Errorf("PrintBranchStatuses() output should contain 'No PR'")
+	}
+
+	// Check for branch names
+	if !strings.Contains(output, "merged-branch") {
+		t.Errorf("PrintBranchStatuses() output should contain 'merged-branch'")
+	}
+	if !strings.Contains(output, "no-pr-branch") {
+		t.Errorf("PrintBranchStatuses() output should contain 'no-pr-branch'")
+	}
+
+	// Check PR details
+	if !strings.Contains(output, "#1") {
+		t.Errorf("PrintBranchStatuses() output should contain PR number '#1'")
+	}
+	if !strings.Contains(output, "Merged PR") {
+		t.Errorf("PrintBranchStatuses() output should contain PR title 'Merged PR'")
 	}
 }

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/nikzadk/axe/cmd"
+	"github.com/nikzadkhani/axe/cmd"
 )
 
 func main() {

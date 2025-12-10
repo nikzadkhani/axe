@@ -5,7 +5,8 @@ import (
 	"io"
 
 	"github.com/fatih/color"
-	"github.com/nikzadk/axe/pkg/github"
+	"github.com/nikzadkhani/axe/pkg/branch"
+	"github.com/nikzadkhani/axe/pkg/github"
 )
 
 // Formatter provides an interface for formatted output
@@ -24,6 +25,8 @@ type Formatter interface {
 	PrintBranchWithPR(branch string, pr *github.PRInfo)
 	// PrintHeader prints a header message
 	PrintHeader(msg string)
+	// PrintBranchStatuses prints branches grouped by status
+	PrintBranchStatuses(statusMap map[string][]branch.BranchStatus)
 }
 
 // ColoredFormatter implements Formatter with colored output
@@ -77,6 +80,50 @@ func (f *ColoredFormatter) PrintHeader(msg string) {
 	fmt.Fprintf(f.writer, "\n%s\n", bold(msg))
 }
 
+func (f *ColoredFormatter) PrintBranchStatuses(statusMap map[string][]branch.BranchStatus) {
+	// Define status order and formatting
+	statusInfo := []struct {
+		key    string
+		emoji  string
+		color  func(a ...interface{}) string
+		label  string
+	}{
+		{"merged", "🪓", color.New(color.FgGreen, color.Bold).SprintFunc(), "Merged (ready to axe)"},
+		{"open", "📂", color.New(color.FgCyan).SprintFunc(), "Open PR"},
+		{"draft", "✏️", color.New(color.FgMagenta).SprintFunc(), "Draft PR"},
+		{"closed", "❌", color.New(color.FgRed).SprintFunc(), "Closed (not merged)"},
+		{"no-pr", "🔍", color.New(color.FgYellow).SprintFunc(), "No PR"},
+	}
+
+	for _, info := range statusInfo {
+		branches := statusMap[info.key]
+		if len(branches) == 0 {
+			continue
+		}
+
+		// Print section header
+		headerColor := color.New(color.Bold).SprintFunc()
+		fmt.Fprintf(f.writer, "\n%s %s: %d branch(es)\n",
+			info.emoji,
+			headerColor(info.label),
+			len(branches))
+
+		// Print branches
+		for _, b := range branches {
+			if b.PR != nil {
+				yellow := color.New(color.FgYellow).SprintFunc()
+				dim := color.New(color.Faint).SprintFunc()
+				fmt.Fprintf(f.writer, "  %s %s %s\n",
+					info.color(b.Name),
+					yellow(fmt.Sprintf("(#%d)", b.PR.Number)),
+					dim(b.PR.Title))
+			} else {
+				fmt.Fprintf(f.writer, "  %s\n", info.color(b.Name))
+			}
+		}
+	}
+}
+
 // PlainFormatter implements Formatter with plain text output
 type PlainFormatter struct {
 	writer io.Writer
@@ -114,3 +161,44 @@ func (f *PlainFormatter) PrintBranchWithPR(branch string, pr *github.PRInfo) {
 func (f *PlainFormatter) PrintHeader(msg string) {
 	fmt.Fprintf(f.writer, "\n%s\n", msg)
 }
+
+func (f *PlainFormatter) PrintBranchStatuses(statusMap map[string][]branch.BranchStatus) {
+	// Define status order
+	statusInfo := []struct {
+		key   string
+		emoji string
+		label string
+	}{
+		{"merged", "🪓", "Merged (ready to axe)"},
+		{"open", "📂", "Open PR"},
+		{"draft", "✏️", "Draft PR"},
+		{"closed", "❌", "Closed (not merged)"},
+		{"no-pr", "🔍", "No PR"},
+	}
+
+	for _, info := range statusInfo {
+		branches := statusMap[info.key]
+		if len(branches) == 0 {
+			continue
+		}
+
+		// Print section header
+		fmt.Fprintf(f.writer, "\n%s %s: %d branch(es)\n",
+			info.emoji,
+			info.label,
+			len(branches))
+
+		// Print branches
+		for _, b := range branches {
+			if b.PR != nil {
+				fmt.Fprintf(f.writer, "  %s (#%d: %s)\n",
+					b.Name,
+					b.PR.Number,
+					b.PR.Title)
+			} else {
+				fmt.Fprintf(f.writer, "  %s\n", b.Name)
+			}
+		}
+	}
+}
+
